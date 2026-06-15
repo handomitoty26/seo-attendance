@@ -1,5 +1,5 @@
 // sw.js - 서현관자습실출석부v1 Service Worker
-const CACHE_NAME = 'seohyeon-v1';
+const CACHE_NAME = 'seohyeon-v2';
 const ASSETS = [
   './index.html',
   './manifest.json',
