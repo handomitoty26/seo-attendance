@@ -38,7 +38,7 @@
         }
 
         /* 상단 헤더 & 통계 (고정 영역) */
-        .header-container { background: var(--surface); padding: 8px 14px; border-radius: var(--radius); box-shadow: var(--sh-1); margin: 8px 8px 0 8px; display: flex; justify-content: space-between; align-items: center; flex: 0 0 auto; gap: 8px; border: var(--bd-w, 1px) solid var(--line); transition: all 0.3s ease; }
+        .header-container { background: var(--surface); padding: 6px 14px; border-radius: var(--radius); box-shadow: var(--sh-1); margin: 8px 8px 0 8px; display: flex; flex-direction: column; gap: 5px; flex: 0 0 auto; border: var(--bd-w, 1px) solid var(--line); transition: all 0.3s ease; }
         .stats-bar { display: flex; gap: 6px; margin: 6px 10px; background: var(--surface); padding: 7px 14px; border-radius: var(--radius); box-shadow: var(--sh-1); font-size: 11px; font-weight: bold; justify-content: flex-start; flex-wrap: nowrap; gap: 4px; flex: 0 0 auto; border: var(--bd-w, 1px) solid var(--line); transition: all 0.3s ease; }
         
         /* 메인 명단 (스크롤 없이 꽉 차는 영역) */
@@ -60,12 +60,12 @@
         .main-title:hover { background: var(--surface-2); border: 1px dashed var(--line-strong); }
 
         /* 2개 자습실 전환 버튼 */
-        .room-switcher { display: flex; flex-direction: row; gap: 6px; justify-content: center; }
+        .room-switcher { display: none; }
         .room-btn {
             font-size: 15px; font-weight: 900; padding: 10px 14px; border-radius: var(--radius-sm, 8px);
             border: var(--bd-w, 1px) solid var(--line-strong); background: var(--surface-2); color: var(--text-sub); cursor: pointer;
             font-family: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-            transition: all 0.2s ease; width: 100%; box-sizing: border-box; box-shadow: 0 1px 2px rgba(0,0,0,0.03); letter-spacing: -0.01em;
+            transition: all 0.2s ease; box-sizing: border-box; box-shadow: 0 1px 2px rgba(0,0,0,0.03); letter-spacing: -0.01em;
         }
         .room-btn.active { background: var(--accent); color: var(--accent-tx); border-color: var(--accent); box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
         .room-btn:not(.active):hover { background: var(--surface); color: var(--text); border-color: var(--accent); }
@@ -521,38 +521,35 @@
 
     <div id="app-container">
         <div class="header-container">
-            <div class="header-left">
-                <div class="layout-combined" style="display:none;">
-                    <label class="layout-btn" for="input-layout">🔄 배치도</label>
-                    <input type="file" id="input-layout" accept=".xlsx, .xls">
-                    <div id="info-layout" class="layout-status">미로드</div>
+            <!-- 1행: 설정·출석연동 ↔ 교시탭·전체화면·메모 -->
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; width:100%;">
+                <div class="header-left">
+                    <div class="layout-combined" style="display:none;">
+                        <label class="layout-btn" for="input-layout">🔄 배치도</label>
+                        <input type="file" id="input-layout" accept=".xlsx, .xls">
+                        <div id="info-layout" class="layout-status">미로드</div>
+                    </div>
+                    <button class="action-btn bg-settings" onclick="openSettings()">⚙️ 설정</button>
+                    <label class="file-label bg-success" for="input-status" id="label-status" style="display:none;">📊 출석연동</label>
+                    <input type="file" id="input-status" accept=".xlsx, .xls, .csv" onclick="this.value=null;">
                 </div>
-                <button class="action-btn bg-settings" onclick="openSettings()">⚙️ 설정</button>
-                <label class="file-label bg-success" for="input-status" id="label-status" style="display:none;">📊 출석연동</label>
-                <input type="file" id="input-status" accept=".xlsx, .xls, .csv" onclick="this.value=null;">
+                <div class="header-right">
+                    <button id="btn-return-today" class="action-btn bg-danger-pulse" style="display:none;" onclick="returnToToday()">🔙 오늘(현재)로 복귀</button>
+                    <div class="tabs">
+                        <button class="tab-btn active" onclick="switchPeriod(1)">1교시</button>
+                        <button class="tab-btn" onclick="switchPeriod(2)">2교시</button>
+                        <button class="tab-btn" onclick="switchPeriod(3)">3교시</button>
+                    </div>
+                    <button class="action-btn bg-teal" onclick="toggleFullScreen()">⛶ 전체화면</button>
+                    <button class="action-btn bg-memo" onclick="openMemoModal()">📝 메모</button>
+                    <button class="action-btn bg-warning" id="btn-history" style="display:none;" onclick="openHistoryModal()"></button>
+                </div>
             </div>
-            
-            <div class="header-center" title="현재 자습실을 누르면 이름 변경, 다른 자습실을 누르면 전환됩니다.">
-                <div class="room-switcher">
-                    <button id="room-btn-A" class="room-btn active" onclick="onRoomButtonClick('A')"></button>
-                    <button id="room-btn-B" class="room-btn" onclick="onRoomButtonClick('B')"></button>
-                </div>
-            </div>
-            
-            <div class="header-right">
-                <button id="btn-return-today" class="action-btn bg-danger-pulse" style="display:none;" onclick="returnToToday()">🔙 오늘(현재)로 복귀</button>
-                
-                
-                
-                <div class="tabs">
-                    <button class="tab-btn active" onclick="switchPeriod(1)">1교시</button>
-                    <button class="tab-btn" onclick="switchPeriod(2)">2교시</button>
-                    <button class="tab-btn" onclick="switchPeriod(3)">3교시</button>
-                </div>
-                
-                <button class="action-btn bg-teal" onclick="toggleFullScreen()">⛶ 전체화면</button>
-                <button class="action-btn bg-memo" onclick="openMemoModal()">📝 메모</button>
-                <button class="action-btn bg-warning" id="btn-history" style="display:none;" onclick="openHistoryModal()"></button>
+            <!-- 2행: 자습실 전환 탭 (위아래 → 가로 분할, 각 절반) -->
+            <div title="현재 자습실을 누르면 이름 변경, 다른 자습실을 누르면 전환됩니다."
+                 style="display:flex; gap:6px; width:100%;">
+                <button id="room-btn-A" class="room-btn active" onclick="onRoomButtonClick('A')" style="flex:1;"></button>
+                <button id="room-btn-B" class="room-btn" onclick="onRoomButtonClick('B')" style="flex:1;"></button>
             </div>
         </div>
 
