@@ -13,6 +13,9 @@
     <link rel="apple-touch-icon" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
+    <!-- PWA 설정 -->
+    <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
     <style>
@@ -517,6 +520,16 @@
         });
       }
     </script>
+
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('sw.js')
+            .then(function(reg) { console.log('SW registered'); })
+            .catch(function(err) { console.log('SW error', err); });
+        });
+      }
+    </script>
 </head>
 <body>
 
@@ -616,6 +629,19 @@
                 <input type="text" id="custom-title-input" class="edit-input" style="font-weight:900; font-size:16px; text-align:center;">
                 <button class="btn-save" style="margin-bottom:8px;" onclick="saveCustomTitle()">이름 저장하기</button>
                 <button class="modal-close" style="margin-top:0;" onclick="closeTitleModal()">취소</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="sheet-modal" class="modal-overlay">
+        <div class="modal-box" style="max-width: 340px;">
+            <div class="modal-header">
+                <span style="color:var(--text);">불러올 자습실 선택</span>
+            </div>
+            <div class="modal-body">
+                <p style="font-size:12px; color:var(--text-sub); margin-top:0;">파일에 자습실이 여러 개 있습니다. 지금 보고 있는 방에 넣을 자습실을 선택하세요.</p>
+                <div id="sheet-pick-list"></div>
+                <button class="modal-close" style="margin-top:0;" onclick="closeModal('sheet-modal')">취소</button>
             </div>
         </div>
     </div>
@@ -1095,25 +1121,172 @@
             setInterval(checkAutoClear, 60000);
         };
 
+        /* =========================================================
+           [v1.8] 배정표 2종 연동
+             · legacy : 한 칸에 "1105 김경준"      (1학기 배치도)
+             · modern : 학번행 아래 이름행 분리   (2학기 인쇄용 배정표)
+           modern 파일에는 빈 좌석이 표기되지 않으므로,
+           좌석틀(실제 현장 좌석 지도)에 학생을 채워 빈자리를 복원합니다.
+           ========================================================= */
+        const SEAT_FRAMES = {
+            "2층좌석배정(30석)":
+                "F5 G5 H5 I5 J5 K5 B7 C7 B9 C9 G10 H10 I10 J10 K10 G12 H12 I12 J12 K12 G17 H17 I17 J17 K17 G19 H19 I19 J19 K19",
+            "4층좌석배정(68석)":
+                "B3 D3 E3 F3 G3 H3 I3 K3 B5 D5 E5 F5 G5 H5 I5 K5 B7 K7 D8 E8 F8 G8 H8 I8 B9 K9 D10 E10 F10 G10 H10 I10 B11 K11 B13 E13 F13 G13 K13 E15 F15 G15 B16 K16 B18 D18 E18 F18 G18 H18 I18 K18 F20 G20 H20 I20 K20 K22 F24 G24 H24 I24 K24 F26 G26 H26 I26 K26"
+        };
+        const FACILITY_WORDS = ['출입문', '지도교사석', '사감교사 책상', '사감교사책상'];
+
+        function refToRC(ref) {
+            const m = /^([A-Z]+)(\d+)$/.exec(ref);
+            if (!m) return null;
+            let col = 0;
+            for (let i = 0; i < m[1].length; i++) col = col * 26 + (m[1].charCodeAt(i) - 64);
+            return [parseInt(m[2], 10) - 1, col - 1];
+        }
+
+        function cellText(matrix, r, c) {
+            const row = matrix[r] || [];
+            const v = row[c];
+            return (v === undefined || v === null) ? "" : String(v).trim();
+        }
+
+        function detectLayoutFormat(matrix) {
+            let combined = 0, numOnly = 0;
+            for (let r = 0; r < matrix.length; r++) {
+                const row = matrix[r] || [];
+                for (let c = 0; c < row.length; c++) {
+                    const v = cellText(matrix, r, c);
+                    if (!v) continue;
+                    if (/^\d{4}\s+\S/.test(v)) combined++;
+                    else if (/^\d{4}$/.test(v)) numOnly++;
+                }
+            }
+            if (combined > 0) return 'legacy';
+            if (numOnly > 0) return 'modern';
+            return 'legacy';
+        }
+
+        function getSeatFrame(sheetName, matrix) {
+            if (SEAT_FRAMES[sheetName]) {
+                return SEAT_FRAMES[sheetName].split(/\s+/).map(refToRC).filter(Boolean);
+            }
+            /* 시트 이름이 다르면 학번 아래에 이름이 오는 칸을 직접 찾습니다.
+               (이 경우 빈 좌석은 복원되지 않습니다) */
+            const found = [];
+            for (let r = 0; r < matrix.length; r++) {
+                const row = matrix[r] || [];
+                for (let c = 0; c < row.length; c++) {
+                    if (!/^\d{4}$/.test(cellText(matrix, r, c))) continue;
+                    const below = cellText(matrix, r + 1, c);
+                    if (below && !/^\d/.test(below)) found.push([r, c]);
+                }
+            }
+            return found;
+        }
+
+        function convertModernLayout(matrix, sheetName) {
+            const frame = getSeatFrame(sheetName, matrix);
+            if (!frame.length) return matrix;
+            const isSid = {}, isName = {};
+            let maxR = matrix.length - 1, maxC = 0;
+            frame.forEach(function(p) {
+                isSid[p[0] + ':' + p[1]] = true;
+                isName[(p[0] + 1) + ':' + p[1]] = true;
+                if (p[0] + 1 > maxR) maxR = p[0] + 1;
+                if (p[1] > maxC) maxC = p[1];
+            });
+            matrix.forEach(function(row) {
+                if (row && row.length - 1 > maxC) maxC = row.length - 1;
+            });
+
+            const out = [];
+            for (let r = 0; r <= maxR; r++) {
+                let hasSid = false, hasName = false, hasFac = false;
+                for (let c = 0; c <= maxC; c++) {
+                    if (isSid[r + ':' + c]) hasSid = true;
+                    if (isName[r + ':' + c]) hasName = true;
+                    if (FACILITY_WORDS.indexOf(cellText(matrix, r, c)) >= 0) hasFac = true;
+                }
+                if (hasName && !hasSid && !hasFac) continue; // 이름 전용 행은 위 칸에 합쳐짐
+                const line = [];
+                for (let c = 0; c <= maxC; c++) {
+                    const txt = cellText(matrix, r, c);
+                    if (isSid[r + ':' + c]) {
+                        line.push(txt ? (txt + ' ' + cellText(matrix, r + 1, c)).trim() : '빈자리');
+                    } else if (FACILITY_WORDS.indexOf(txt) >= 0) {
+                        line.push(txt);
+                    } else {
+                        line.push(""); // 제목·방향표시 등 좌석이 아닌 글자는 제외
+                    }
+                }
+                out.push(line);
+            }
+            const blank = function(row) { return row.every(function(v) { return !v; }); };
+            while (out.length && blank(out[0])) out.shift();
+            while (out.length && blank(out[out.length - 1])) out.pop();
+            if (!out.length) return matrix;
+            let left = 0, right = out[0].length - 1;
+            while (left <= right && out.every(function(row) { return !row[left]; })) left++;
+            while (right >= left && out.every(function(row) { return !row[right]; })) right--;
+            return out.map(function(row) { return row.slice(left, right + 1); });
+        }
+
+        function countSeats(matrix) {
+            let n = 0;
+            for (let r = 0; r < matrix.length; r++) {
+                const row = matrix[r] || [];
+                for (let c = 0; c < row.length; c++) {
+                    const v = cellText(matrix, r, c);
+                    if (!v || FACILITY_WORDS.indexOf(v) >= 0) continue;
+                    n++;
+                }
+            }
+            return n;
+        }
+
+        function showSheetPicker(names, cb) {
+            const box = document.getElementById('sheet-pick-list');
+            box.innerHTML = "";
+            names.forEach(function(n) {
+                const b = document.createElement('button');
+                b.className = 'load-btn';
+                b.style.marginBottom = '8px';
+                b.innerText = n;
+                b.onclick = function() { closeModal('sheet-modal'); cb(n); };
+                box.appendChild(b);
+            });
+            showModal('sheet-modal');
+        }
+
         document.getElementById('input-layout').addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (!file) return;
-            localStorage.setItem(K('smartLayoutFileName'), file.name);
-            updateMainTitle(file.name);
-            const layoutIndicator = document.getElementById('info-layout');
-            layoutIndicator.innerText = "✅ 로드됨";
-            layoutIndicator.classList.add('text-active');
             const reader = new FileReader();
             reader.onload = function(evt) {
                 const data = new Uint8Array(evt.target.result);
                 const workbook = XLSX.read(data, {type: 'array'});
-                const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-                const matrix = XLSX.utils.sheet_to_json(firstSheet, {header: 1, defval: ""});
-                localStorage.setItem(K('smartLayoutDB'), JSON.stringify(matrix));
-                roomState[activeRoom].layoutMatrix = matrix;
-                generateGrid(matrix);
+                const applySheet = function(sheetName) {
+                    const sheet = workbook.Sheets[sheetName];
+                    let matrix = XLSX.utils.sheet_to_json(sheet, {header: 1, defval: ""});
+                    const fmt = detectLayoutFormat(matrix);
+                    if (fmt === 'modern') matrix = convertModernLayout(matrix, sheetName);
+                    localStorage.setItem(K('smartLayoutFileName'), file.name);
+                    updateMainTitle(file.name);
+                    const layoutIndicator = document.getElementById('info-layout');
+                    layoutIndicator.innerText = "✅ 로드됨";
+                    layoutIndicator.classList.add('text-active');
+                    localStorage.setItem(K('smartLayoutDB'), JSON.stringify(matrix));
+                    roomState[activeRoom].layoutMatrix = matrix;
+                    generateGrid(matrix);
+                    if (fmt === 'modern') {
+                        backupToast(sheetName + " 좌석 " + countSeats(matrix) + "칸을 불러왔습니다");
+                    }
+                };
+                if (workbook.SheetNames.length > 1) showSheetPicker(workbook.SheetNames, applySheet);
+                else applySheet(workbook.SheetNames[0]);
             };
             reader.readAsArrayBuffer(file);
+            e.target.value = ""; // 같은 파일을 다시 선택해도 반영되도록 초기화
         });
 
         function generateGrid(matrix, keepData = false) {
@@ -1162,7 +1335,7 @@
                         div.className = "empty-seat";
                         div.innerText = "빈자리";
                         board.appendChild(div);
-                    } else if (cell === "지도교사석" || cell === "출입문") {
+                    } else if (FACILITY_WORDS.indexOf(cell) >= 0) {
                         const div = document.createElement('div');
                         div.className = "facility";
                         div.innerText = cell;
